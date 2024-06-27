@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use color_eyre::Result;
-use wasmer::{Function, Instance, Value, Store};
+use wasmer::{Function, Instance, Store, Value};
 
 #[derive(Clone, Debug)]
 pub struct WasmInstance {
@@ -132,12 +132,15 @@ impl CircomBase for WasmInstance {
     ) -> Result<()> {
         let func = self.func("getSignalOffset32");
         let mut store = self.store.write().unwrap();
-        func.call(&mut store, &[
-            p_sig_offset.into(),
-            component.into(),
-            hash_msb.into(),
-            hash_lsb.into(),
-        ])?;
+        func.call(
+            &mut store,
+            &[
+                p_sig_offset.into(),
+                component.into(),
+                hash_msb.into(),
+                hash_lsb.into(),
+            ],
+        )?;
 
         Ok(())
     }
@@ -145,7 +148,10 @@ impl CircomBase for WasmInstance {
     fn set_signal(&self, c_idx: u32, component: u32, signal: u32, p_val: u32) -> Result<()> {
         let func = self.func("setSignal");
         let mut store = self.store.write().unwrap();
-        func.call(&mut store, &[c_idx.into(), component.into(), signal.into(), p_val.into()])?;
+        func.call(
+            &mut store,
+            &[c_idx.into(), component.into(), signal.into(), p_val.into()],
+        )?;
 
         Ok(())
     }
@@ -176,9 +182,6 @@ impl CircomBase for WasmInstance {
 
 impl WasmInstance {
     pub fn new(instance: Instance, store: Arc<RwLock<Store>>) -> Self {
-        Self {
-            instance,
-            store
-        }
+        Self { instance, store }
     }
 }

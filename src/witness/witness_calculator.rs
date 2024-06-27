@@ -100,9 +100,15 @@ impl WitnessCalculator {
 
         // Circom 2 feature flag with version 2
         #[cfg(feature = "circom-2")]
-        fn new_circom2(store: Arc<RwLock<Store>>, instance: WasmInstance, memory: Memory, version: u32) -> Result<WitnessCalculator> {
+        fn new_circom2(
+            store: Arc<RwLock<Store>>,
+            instance: WasmInstance,
+            memory: Memory,
+            version: u32,
+        ) -> Result<WitnessCalculator> {
             let n32 = instance.get_field_num_len32()?;
-            let mut safe_memory = SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
+            let mut safe_memory =
+                SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
             instance.get_raw_prime()?;
             let mut arr = vec![0; n32 as usize];
             for i in 0..n32 {
@@ -123,10 +129,16 @@ impl WitnessCalculator {
             })
         }
 
-        fn new_circom1(store: Arc<RwLock<Store>>, instance: WasmInstance, memory: Memory, version: u32) -> Result<WitnessCalculator> {
+        fn new_circom1(
+            store: Arc<RwLock<Store>>,
+            instance: WasmInstance,
+            memory: Memory,
+            version: u32,
+        ) -> Result<WitnessCalculator> {
             // Fallback to Circom 1 behavior
             let n32 = (instance.get_fr_len()? >> 2) - 2;
-            let mut safe_memory = SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
+            let mut safe_memory =
+                SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
             let ptr = instance.get_ptr_raw_prime()?;
             let prime = safe_memory.read_big(ptr as usize, n32 as usize)?;
 

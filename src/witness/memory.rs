@@ -15,12 +15,11 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{convert::TryFrom, ops::Deref};
 
-
 /// `SafeMemory` is a wrapper around the Wasm `Memory` instance that is intended to provide a safer/simpler
 /// interface for witness computation in their natural language.
-/// 
+///
 /// Memory Layout:
-/// [0-3]   : Free Position Pointer (u32): 
+/// [0-3]   : Free Position Pointer (u32):
 /// [4-7]   : (Possibly unused or reserved)
 /// [8..]   : Begin allocating: eg. first allocated u32 (4 bytes data + 4 bytes padding/metadata)
 /// ...     : More allocated memory
@@ -61,7 +60,7 @@ impl SafeMemory {
         .unwrap();
 
         Self {
-            store, 
+            store,
             memory,
             prime,
 
