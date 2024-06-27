@@ -3,7 +3,7 @@ use ark_ff::PrimeField;
 use color_eyre::Result;
 use num_bigint::BigInt;
 use num_traits::Zero;
-use std::{cell::Cell, sync::{Arc, RwLock}};
+use std::sync::{Arc, RwLock};
 use wasmer::{imports, Function, Instance, Memory, MemoryType, Module, RuntimeError, Store};
 
 #[cfg(feature = "circom-2")]
@@ -19,6 +19,7 @@ pub struct WitnessCalculator {
     pub store: Arc<RwLock<Store>>,
     pub instance: Wasm,
     pub memory: SafeMemory,
+    // Number of 64-bit blocks required to represent a field element?
     pub n64: u32,
     pub circom_version: u32,
 }
@@ -293,16 +294,13 @@ impl WitnessCalculator {
     }
 
     pub fn get_witness_buffer(&self) -> Result<Vec<u8>> {
-        let ptr = self.instance.get_ptr_witness_buffer()? as usize;
+        let ptr = self.instance.get_ptr_witness_buffer()? as u64;
+        let len = (self.instance.get_n_vars()? * self.n64 * 8) as u64;
 
-        let view = self.memory.memory.view::<u8>();
+        let store_read = self.store.read().unwrap();
+        let view = self.memory.memory.view(&store_read);
 
-        let len = self.instance.get_n_vars()? * self.n64 * 8;
-        let arr = view[ptr..ptr + len as usize]
-            .iter()
-            .map(Cell::get)
-            .collect::<Vec<_>>();
-
+        let arr = view.copy_range_to_vec(ptr..(ptr + len)).unwrap();
         Ok(arr)
     }
 }

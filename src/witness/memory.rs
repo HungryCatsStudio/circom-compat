@@ -16,14 +16,13 @@ use std::sync::{Arc, RwLock};
 use std::{convert::TryFrom, ops::Deref};
 
 
-/// `SafeMemory` is a wrapper around a `Memory` instance that allows 
+/// `SafeMemory` is a wrapper around the Wasm `Memory` instance that is intended to provide a safer/simpler
+/// interface for witness computation in their natural language.
 /// 
 /// Memory Layout:
 /// [0-3]   : Free Position Pointer (u32): 
 /// [4-7]   : (Possibly unused or reserved)
-/// [8-15]  : First allocated u32 (4 bytes data + 4 bytes padding/metadata)
-/// [16-23] : Second allocated u32
-/// [24-31] : Third allocated u32
+/// [8..]   : Begin allocating: eg. first allocated u32 (4 bytes data + 4 bytes padding/metadata)
 /// ...     : More allocated memory
 #[derive(Clone, Debug)]
 pub struct SafeMemory {
@@ -78,8 +77,8 @@ impl SafeMemory {
         let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
         let mut buf = [0u8; 4];
-        view.read(0, &mut buf)?;
-        Ok(u32::from_le_bytes(buf))
+        view.read(0, &mut buf).unwrap();
+        u32::from_le_bytes(buf)
     }
 
     /// Sets the next free position in the memory
@@ -87,7 +86,7 @@ impl SafeMemory {
         self.write_u32(0, ptr);
     }
 
-    /// Allocates a U32 in memory
+    /// Allocates a u32 in memory with 8 byte allignment
     pub fn alloc_u32(&mut self) -> u32 {
         let p = self.free_pos();
         self.set_free_pos(p + 8);
@@ -96,13 +95,19 @@ impl SafeMemory {
 
     /// Writes a u32 to the specified memory offset
     pub fn write_u32(&mut self, ptr: usize, num: u32) {
-        let buf = unsafe { self.memory.data_unchecked_mut() };
+        let store = self.store.write().unwrap();
+        let view = self.memory.view(&*store);
+
+        let buf = unsafe { view.data_unchecked_mut() };
         buf[ptr..ptr + std::mem::size_of::<u32>()].copy_from_slice(&num.to_le_bytes());
     }
 
     /// Reads a u32 from the specified memory offset
     pub fn read_u32(&self, ptr: usize) -> u32 {
-        let buf = unsafe { self.memory.data_unchecked() };
+        let store = self.store.read().unwrap();
+        let view = self.memory.view(&*store);
+
+        let buf = unsafe { view.data_unchecked() };
 
         let mut bytes = [0; 4];
         bytes.copy_from_slice(&buf[ptr..ptr + std::mem::size_of::<u32>()]);
@@ -135,15 +140,17 @@ impl SafeMemory {
 
     /// Reads a Field Element from the memory at the specified offset
     pub fn read_fr(&self, ptr: usize) -> Result<BigInt> {
-        let view = self.memory.view::<u8>();
+        let store = self.store.read().unwrap();
+        let view = self.memory.view(&*store);
+        // let view = unsafe { mem_view.data_unchecked() };
 
-        let res = if view[ptr + 4 + 3].get() & 0x80 != 0 {
+        let res = if view.read_u8(ptr as u64 + 4 + 3).unwrap() & 0x80 != 0 {
             let mut num = self.read_big(ptr + 8, self.n32)?;
-            if view[ptr + 4 + 3].get() & 0x40 != 0 {
+            if view.read_u8(ptr as u64 + 4 + 3).unwrap() & 0x40 != 0 {
                 num = (num * &self.r_inv) % &self.prime
             }
             num
-        } else if view[ptr + 3].get() & 0x40 != 0 {
+        } else if view.read_u8(ptr as u64 + 3).unwrap() & 0x40 != 0 {
             let mut num = self.read_u32(ptr).into();
             // handle small negative
             num -= BigInt::from(0x100000000i64);
@@ -185,7 +192,9 @@ impl SafeMemory {
     }
 
     fn write_big(&self, ptr: usize, num: &BigInt) -> Result<()> {
-        let buf = unsafe { self.memory.data_unchecked_mut() };
+        let store = self.store.read().unwrap();
+        let view = self.memory.view(&*store);
+        let buf = unsafe { view.data_unchecked_mut() };
 
         // TODO: How do we handle negative bignums?
         let (_, num) = num.clone().into_parts();
@@ -200,7 +209,9 @@ impl SafeMemory {
 
     /// Reads `num_bytes * 32` from the specified memory offset in a Big Integer
     pub fn read_big(&self, ptr: usize, num_bytes: usize) -> Result<BigInt> {
-        let buf = unsafe { self.memory.data_unchecked() };
+        let store = self.store.read().unwrap();
+        let view = self.memory.view(&*store);
+        let buf = unsafe { view.data_unchecked() };
         let buf = &buf[ptr..ptr + num_bytes * 32];
 
         // TODO: Is there a better way to read big integers?
