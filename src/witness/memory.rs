@@ -97,8 +97,7 @@ impl SafeMemory {
         let store = self.store.write().unwrap();
         let view = self.memory.view(&*store);
 
-        let buf = unsafe { view.data_unchecked_mut() };
-        buf[ptr..ptr + std::mem::size_of::<u32>()].copy_from_slice(&num.to_le_bytes());
+        view.write(ptr as u64, &num.to_le_bytes()).unwrap();
     }
 
     /// Reads a u32 from the specified memory offset
@@ -106,10 +105,8 @@ impl SafeMemory {
         let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
 
-        let buf = unsafe { view.data_unchecked() };
-
         let mut bytes = [0; 4];
-        bytes.copy_from_slice(&buf[ptr..ptr + std::mem::size_of::<u32>()]);
+        view.read(ptr as u64, &mut bytes).unwrap();
 
         u32::from_le_bytes(bytes)
     }
@@ -190,30 +187,25 @@ impl SafeMemory {
     }
 
     fn write_big(&self, ptr: usize, num: &BigInt) -> Result<()> {
-        let store = self.store.read().unwrap();
+        let store = self.store.write().unwrap();
         let view = self.memory.view(&*store);
-        let buf = unsafe { view.data_unchecked_mut() };
 
         // TODO: How do we handle negative bignums?
         let (_, num) = num.clone().into_parts();
         let num = BigInteger256::try_from(num).unwrap();
 
-        let bytes = num.to_bytes_le();
-        let len = bytes.len();
-        buf[ptr..ptr + len].copy_from_slice(&bytes);
-
-        Ok(())
+        view.write(ptr as u64, &num.to_bytes_le())
+            .map_err(Into::into)
     }
 
-    /// Reads `num_bytes * 32` from the specified memory offset in a Big Integer
-    pub fn read_big(&self, ptr: usize, num_bytes: usize) -> Result<BigInt> {
+    /// Reads `limbs_32 * 32` bytes from the specified memory offset in a Big Integer
+    pub fn read_big(&self, ptr: usize, limbs_32: usize) -> Result<BigInt> {
         let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
-        let buf = unsafe { view.data_unchecked() };
-        let buf = &buf[ptr..ptr + num_bytes * 32];
+        let buf = view.copy_range_to_vec(ptr as u64..(ptr + limbs_32 * 32) as u64)?;
 
         // TODO: Is there a better way to read big integers?
-        let big = BigInteger256::deserialize_uncompressed(buf).unwrap();
+        let big = BigInteger256::deserialize_uncompressed(buf.as_slice()).unwrap();
         let big = BigUint::from(big);
         Ok(big.into())
     }
