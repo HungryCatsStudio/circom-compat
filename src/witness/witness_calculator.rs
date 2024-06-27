@@ -3,7 +3,7 @@ use ark_ff::PrimeField;
 use color_eyre::Result;
 use num_bigint::BigInt;
 use num_traits::Zero;
-use std::cell::Cell;
+use std::{cell::Cell, sync::{Arc, RwLock}};
 use wasmer::{imports, Function, Instance, Memory, MemoryType, Module, RuntimeError, Store};
 
 #[cfg(feature = "circom-2")]
@@ -16,6 +16,7 @@ use super::Circom;
 
 #[derive(Clone, Debug)]
 pub struct WitnessCalculator {
+    pub store: Arc<RwLock<Store>>,
     pub instance: Wasm,
     pub memory: SafeMemory,
     pub n64: u32,
@@ -61,41 +62,46 @@ impl WitnessCalculator {
     pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let store = Store::default();
         let module = Module::from_file(&store, path)?;
-        Self::from_module(module)
+        Self::from_module(store, module)
     }
 
-    pub fn from_module(module: Module) -> Result<Self> {
-        let store = module.store();
+    pub fn from_module(store: Store, module: Module) -> Result<Self> {
+        let store = Arc::new(RwLock::new(store));
+        let mut store_locked = store.write().unwrap();
 
         // Set up the memory
-        let memory = Memory::new(store, MemoryType::new(2000, None, false)).unwrap();
+        let memory = Memory::new(&mut store_locked, MemoryType::new(2000, None, false)).unwrap();
         let import_object = imports! {
             "env" => {
                 "memory" => memory.clone(),
             },
             // Host function callbacks from the WASM
             "runtime" => {
-                "error" => runtime::error(store),
-                "logSetSignal" => runtime::log_signal(store),
-                "logGetSignal" => runtime::log_signal(store),
-                "logFinishComponent" => runtime::log_component(store),
-                "logStartComponent" => runtime::log_component(store),
-                "log" => runtime::log_component(store),
-                "exceptionHandler" => runtime::exception_handler(store),
-                "showSharedRWMemory" => runtime::show_memory(store),
-                "printErrorMessage" => runtime::print_error_message(store),
-                "writeBufferMessage" => runtime::write_buffer_message(store),
+                "error" => runtime::error(&mut store_locked),
+                "logSetSignal" => runtime::log_signal(&mut store_locked),
+                "logGetSignal" => runtime::log_signal(&mut store_locked),
+                "logFinishComponent" => runtime::log_component(&mut store_locked),
+                "logStartComponent" => runtime::log_component(&mut store_locked),
+                "log" => runtime::log_component(&mut store_locked),
+                "exceptionHandler" => runtime::exception_handler(&mut store_locked),
+                "showSharedRWMemory" => runtime::show_memory(&mut store_locked),
+                "printErrorMessage" => runtime::print_error_message(&mut store_locked),
+                "writeBufferMessage" => runtime::write_buffer_message(&mut store_locked),
             }
         };
-        let instance = Wasm::new(Instance::new(&module, &import_object)?);
 
-        let version = instance.get_version().unwrap_or(1);
+        let instance = Instance::new(&mut store_locked, &module, &import_object)?;
+        drop(store_locked);
+
+        let wasm = Wasm::new(instance, store.clone());
+
+        let version = wasm.get_version().unwrap_or(1);
 
         // Circom 2 feature flag with version 2
         #[cfg(feature = "circom-2")]
-        fn new_circom2(instance: Wasm, memory: Memory, version: u32) -> Result<WitnessCalculator> {
+        fn new_circom2(store: Arc<RwLock<Store>>, instance: Wasm, memory: Memory, version: u32) -> Result<WitnessCalculator> {
             let n32 = instance.get_field_num_len32()?;
-            let mut safe_memory = SafeMemory::new(memory, n32 as usize, BigInt::zero());
+            let mut safe_memory = SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
             instance.get_raw_prime()?;
             let mut arr = vec![0; n32 as usize];
             for i in 0..n32 {
@@ -108,6 +114,7 @@ impl WitnessCalculator {
             safe_memory.prime = prime;
 
             Ok(WitnessCalculator {
+                store,
                 instance,
                 memory: safe_memory,
                 n64,
@@ -115,10 +122,10 @@ impl WitnessCalculator {
             })
         }
 
-        fn new_circom1(instance: Wasm, memory: Memory, version: u32) -> Result<WitnessCalculator> {
+        fn new_circom1(store: Arc<RwLock<Store>>, instance: Wasm, memory: Memory, version: u32) -> Result<WitnessCalculator> {
             // Fallback to Circom 1 behavior
             let n32 = (instance.get_fr_len()? >> 2) - 2;
-            let mut safe_memory = SafeMemory::new(memory, n32 as usize, BigInt::zero());
+            let mut safe_memory = SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
             let ptr = instance.get_ptr_raw_prime()?;
             let prime = safe_memory.read_big(ptr as usize, n32 as usize)?;
 
@@ -126,6 +133,7 @@ impl WitnessCalculator {
             safe_memory.prime = prime;
 
             Ok(WitnessCalculator {
+                store,
                 instance,
                 memory: safe_memory,
                 n64,
@@ -143,12 +151,12 @@ impl WitnessCalculator {
         cfg_if::cfg_if! {
             if #[cfg(feature = "circom-2")] {
                 match version {
-                    2 => new_circom2(instance, memory, version),
-                    1 => new_circom1(instance, memory, version),
+                    2 => new_circom2(store, wasm, memory, version),
+                    1 => new_circom1(store, wasm, memory, version),
                     _ => panic!("Unknown Circom version")
                 }
             } else {
-                new_circom1(instance, memory, version)
+                new_circom1(store, instance, memory, version)
             }
         }
     }
@@ -303,7 +311,7 @@ impl WitnessCalculator {
 mod runtime {
     use super::*;
 
-    pub fn error(store: &Store) -> Function {
+    pub fn error(store: &mut Store) -> Function {
         #[allow(unused)]
         #[allow(clippy::many_single_char_names)]
         fn func(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) -> Result<(), RuntimeError> {
@@ -312,47 +320,47 @@ mod runtime {
             println!("runtime error, exiting early: {a} {b} {c} {d} {e} {f}",);
             Err(RuntimeError::user(Box::new(ExitCode(1))))
         }
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 
     // Circom 2.0
-    pub fn exception_handler(store: &Store) -> Function {
+    pub fn exception_handler(store: &mut Store) -> Function {
         #[allow(unused)]
         fn func(a: i32) {}
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 
     // Circom 2.0
-    pub fn show_memory(store: &Store) -> Function {
+    pub fn show_memory(store: &mut Store) -> Function {
         #[allow(unused)]
         fn func() {}
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 
     // Circom 2.0
-    pub fn print_error_message(store: &Store) -> Function {
+    pub fn print_error_message(store: &mut Store) -> Function {
         #[allow(unused)]
         fn func() {}
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 
     // Circom 2.0
-    pub fn write_buffer_message(store: &Store) -> Function {
+    pub fn write_buffer_message(store: &mut Store) -> Function {
         #[allow(unused)]
         fn func() {}
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 
-    pub fn log_signal(store: &Store) -> Function {
+    pub fn log_signal(store: &mut Store) -> Function {
         #[allow(unused)]
         fn func(a: i32, b: i32) {}
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 
-    pub fn log_component(store: &Store) -> Function {
+    pub fn log_component(store: &mut Store) -> Function {
         #[allow(unused)]
         fn func(a: i32) {}
-        Function::new_native(store, func)
+        Function::new_typed(store, func)
     }
 }
 

@@ -1,7 +1,7 @@
 //! Safe-ish interface for reading and writing specific types to the WASM runtime's memory
 use ark_serialize::CanonicalDeserialize;
 use num_traits::ToPrimitive;
-use wasmer::{Memory, MemoryView};
+use wasmer::{Memory, MemoryView, Store};
 
 // TODO: Decide whether we want Ark here or if it should use a generic BigInt package
 use ark_bn254::FrConfig;
@@ -12,11 +12,26 @@ use num_bigint::{BigInt, BigUint};
 
 use color_eyre::Result;
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 use std::{convert::TryFrom, ops::Deref};
 
+
+/// `SafeMemory` is a wrapper around a `Memory` instance that allows 
+/// 
+/// Memory Layout:
+/// [0-3]   : Free Position Pointer (u32): 
+/// [4-7]   : (Possibly unused or reserved)
+/// [8-15]  : First allocated u32 (4 bytes data + 4 bytes padding/metadata)
+/// [16-23] : Second allocated u32
+/// [24-31] : Third allocated u32
+/// ...     : More allocated memory
 #[derive(Clone, Debug)]
 pub struct SafeMemory {
+    // Memory instances must be associated with a store.
+    store: Arc<RwLock<Store>>,
+    // TODO Can we remove this and have a `MemoryView`` instead?
     pub memory: Memory,
+
     pub prime: BigInt,
 
     short_max: BigInt,
@@ -35,7 +50,7 @@ impl Deref for SafeMemory {
 
 impl SafeMemory {
     /// Creates a new SafeMemory
-    pub fn new(memory: Memory, n32: usize, prime: BigInt) -> Self {
+    pub fn new(store: Arc<RwLock<Store>>, memory: Memory, n32: usize, prime: BigInt) -> Self {
         // TODO: Figure out a better way to calculate these
         let short_max = BigInt::from(0x8000_0000u64);
         let short_min =
@@ -47,6 +62,7 @@ impl SafeMemory {
         .unwrap();
 
         Self {
+            store, 
             memory,
             prime,
 
@@ -57,14 +73,13 @@ impl SafeMemory {
         }
     }
 
-    /// Gets an immutable view to the memory in 32 byte chunks
-    pub fn view(&self) -> MemoryView<u32> {
-        self.memory.view()
-    }
-
     /// Returns the next free position in the memory
     pub fn free_pos(&self) -> u32 {
-        self.view()[0].get()
+        let store = self.store.read().unwrap();
+        let view = self.memory.view(&*store);
+        let mut buf = [0u8; 4];
+        view.read(0, &mut buf)?;
+        Ok(u32::from_le_bytes(buf))
     }
 
     /// Sets the next free position in the memory
@@ -209,9 +224,16 @@ mod tests {
     use std::str::FromStr;
     use wasmer::{MemoryType, Store};
 
-    fn new() -> SafeMemory {
+    fn safe_memory_testing_context() -> SafeMemory {
+        let store = Arc::new(RwLock::new(Store::default()));
+        let mut store_write = store.write().unwrap();
+
+        let memory = Memory::new(&mut store_write, MemoryType::new(1, None, false)).unwrap();
+        drop(store_write);
+
         SafeMemory::new(
-            Memory::new(&Store::default(), MemoryType::new(1, None, false)).unwrap(),
+            store,
+            memory,
             2,
             BigInt::from_str(
                 "21888242871839275222246405745257275088548364400416034343698204186575808495617",
@@ -222,7 +244,7 @@ mod tests {
 
     #[test]
     fn i32_bounds() {
-        let mem = new();
+        let mem = safe_memory_testing_context();
         let i32_max = i32::MAX as i64 + 1;
         assert_eq!(mem.short_min.to_i64().unwrap(), -i32_max);
         assert_eq!(mem.short_max.to_i64().unwrap(), i32_max);
@@ -230,7 +252,7 @@ mod tests {
 
     #[test]
     fn read_write_32() {
-        let mut mem = new();
+        let mut mem = safe_memory_testing_context();
         let num = u32::MAX;
 
         let inp = mem.read_u32(0);
@@ -264,7 +286,7 @@ mod tests {
     }
 
     fn read_write_fr(num: BigInt) {
-        let mut mem = new();
+        let mut mem = safe_memory_testing_context();
         mem.write_fr(0, &num).unwrap();
         let res = mem.read_fr(0).unwrap();
         assert_eq!(res, num);

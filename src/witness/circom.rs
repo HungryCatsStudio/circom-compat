@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use color_eyre::Result;
 use wasmer::{Function, Instance, Value, Store};
@@ -6,7 +6,7 @@ use wasmer::{Function, Instance, Value, Store};
 #[derive(Clone, Debug)]
 pub struct Wasm {
     instance: Instance,
-    store: Arc<Mutex<Store>>,
+    store: Arc<RwLock<Store>>,
 }
 
 pub trait CircomBase {
@@ -61,35 +61,35 @@ impl Circom2 for Wasm {
 
     fn get_raw_prime(&self) -> Result<()> {
         let func = self.func("getRawPrime");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[])?;
         Ok(())
     }
 
     fn read_shared_rw_memory(&self, i: u32) -> Result<u32> {
         let func = self.func("readSharedRWMemory");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         let result = func.call(&mut store, &[i.into()])?;
         Ok(result[0].unwrap_i32() as u32)
     }
 
     fn write_shared_rw_memory(&self, i: u32, v: u32) -> Result<()> {
         let func = self.func("writeSharedRWMemory");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[i.into(), v.into()])?;
         Ok(())
     }
 
     fn set_input_signal(&self, hmsb: u32, hlsb: u32, pos: u32) -> Result<()> {
         let func = self.func("setInputSignal");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[hmsb.into(), hlsb.into(), pos.into()])?;
         Ok(())
     }
 
     fn get_witness(&self, i: u32) -> Result<()> {
         let func = self.func("getWitness");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[i.into()])?;
         Ok(())
     }
@@ -102,7 +102,7 @@ impl Circom2 for Wasm {
 impl CircomBase for Wasm {
     fn init(&self, sanity_check: bool) -> Result<()> {
         let func = self.func("init");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[Value::I32(sanity_check as i32)])?;
         Ok(())
     }
@@ -113,7 +113,7 @@ impl CircomBase for Wasm {
 
     fn get_ptr_witness(&self, w: u32) -> Result<u32> {
         let func = self.func("getPWitness");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         let res = func.call(&mut store, &[w.into()])?;
 
         Ok(res[0].unwrap_i32() as u32)
@@ -131,7 +131,7 @@ impl CircomBase for Wasm {
         hash_lsb: u32,
     ) -> Result<()> {
         let func = self.func("getSignalOffset32");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[
             p_sig_offset.into(),
             component.into(),
@@ -144,7 +144,7 @@ impl CircomBase for Wasm {
 
     fn set_signal(&self, c_idx: u32, component: u32, signal: u32, p_val: u32) -> Result<()> {
         let func = self.func("setSignal");
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         func.call(&mut store, &[c_idx.into(), component.into(), signal.into(), p_val.into()])?;
 
         Ok(())
@@ -152,7 +152,7 @@ impl CircomBase for Wasm {
 
     // Default to version 1 if it isn't explicitly defined
     fn get_version(&self) -> Result<u32> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         match self.instance.exports.get_function("getVersion") {
             Ok(func) => Ok(func.call(&mut store, &[])?[0].unwrap_i32() as u32),
             Err(_) => Ok(1),
@@ -161,7 +161,7 @@ impl CircomBase for Wasm {
 
     fn get_u32(&self, name: &str) -> Result<u32> {
         let func = self.func(name);
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.write().unwrap();
         let result = func.call(&mut store, &[])?;
         Ok(result[0].unwrap_i32() as u32)
     }
@@ -175,10 +175,10 @@ impl CircomBase for Wasm {
 }
 
 impl Wasm {
-    pub fn new(instance: Instance, store: Store) -> Self {
+    pub fn new(instance: Instance, store: Arc<RwLock<Store>>) -> Self {
         Self {
             instance,
-            store: Arc::new(Mutex::new(store)),
+            store
         }
     }
 }
