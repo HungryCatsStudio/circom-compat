@@ -16,11 +16,11 @@ use super::Circom;
 
 #[derive(Clone, Debug)]
 pub struct WitnessCalculator {
-    pub store: Arc<RwLock<Store>>,
+    store: Arc<RwLock<Store>>,
     pub instance: WasmInstance,
     pub memory: SafeMemory,
-    // Number of 64-bit blocks required to represent a field element?
-    pub n64: u32,
+    /// Number of 64-bit limbs required to represent a field element
+    pub limbs_64: u32,
     pub circom_version: u32,
 }
 
@@ -106,25 +106,25 @@ impl WitnessCalculator {
             memory: Memory,
             version: u32,
         ) -> Result<WitnessCalculator> {
-            let n32 = instance.get_field_num_len32()?;
+            let limbs_32 = instance.get_field_num_len32()?;
             let mut safe_memory =
-                SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
+                SafeMemory::new(store.clone(), memory, limbs_32 as usize, BigInt::zero());
             instance.get_raw_prime()?;
-            let mut arr = vec![0; n32 as usize];
-            for i in 0..n32 {
+            let mut arr = vec![0; limbs_32 as usize];
+            for i in 0..limbs_32 {
                 let res = instance.read_shared_rw_memory(i)?;
-                arr[(n32 as usize) - (i as usize) - 1] = res;
+                arr[(limbs_32 as usize) - (i as usize) - 1] = res;
             }
             let prime = from_array32(arr);
 
-            let n64 = ((prime.bits() - 1) / 64 + 1) as u32;
+            let limbs_64 = ((prime.bits() - 1) / 64 + 1) as u32;
             safe_memory.prime = prime;
 
             Ok(WitnessCalculator {
                 store,
                 instance,
                 memory: safe_memory,
-                n64,
+                limbs_64,
                 circom_version: version,
             })
         }
@@ -136,20 +136,20 @@ impl WitnessCalculator {
             version: u32,
         ) -> Result<WitnessCalculator> {
             // Fallback to Circom 1 behavior
-            let n32 = (instance.get_fr_len()? >> 2) - 2;
+            let limbs_32 = (instance.get_fr_len()? >> 2) - 2;
             let mut safe_memory =
-                SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
+                SafeMemory::new(store.clone(), memory, limbs_32 as usize, BigInt::zero());
             let ptr = instance.get_ptr_raw_prime()?;
-            let prime = safe_memory.read_big(ptr as usize, n32 as usize)?;
+            let prime = safe_memory.read_big(ptr as usize, limbs_32 as usize)?;
 
-            let n64 = ((prime.bits() - 1) / 64 + 1) as u32;
+            let limbs_64 = ((prime.bits() - 1) / 64 + 1) as u32;
             safe_memory.prime = prime;
 
             Ok(WitnessCalculator {
                 store,
                 instance,
                 memory: safe_memory,
-                n64,
+                limbs_64,
                 circom_version: version,
             })
         }
@@ -245,17 +245,17 @@ impl WitnessCalculator {
     ) -> Result<Vec<BigInt>> {
         self.instance.init(sanity_check)?;
 
-        let n32 = self.instance.get_field_num_len32()?;
+        let limbs_32 = self.instance.get_field_num_len32()?;
 
         // allocate the inputs
         for (name, values) in inputs.into_iter() {
             let (msb, lsb) = fnv(&name);
 
             for (i, value) in values.into_iter().enumerate() {
-                let f_arr = to_array32(&value, n32 as usize);
-                for j in 0..n32 {
+                let f_arr = to_array32(&value, limbs_32 as usize);
+                for j in 0..limbs_32 {
                     self.instance
-                        .write_shared_rw_memory(j, f_arr[(n32 as usize) - 1 - (j as usize)])?;
+                        .write_shared_rw_memory(j, f_arr[(limbs_32 as usize) - 1 - (j as usize)])?;
                 }
                 self.instance.set_input_signal(msb, lsb, i as u32)?;
             }
@@ -266,9 +266,10 @@ impl WitnessCalculator {
         let witness_size = self.instance.get_witness_size()?;
         for i in 0..witness_size {
             self.instance.get_witness(i)?;
-            let mut arr = vec![0; n32 as usize];
-            for j in 0..n32 {
-                arr[(n32 as usize) - 1 - (j as usize)] = self.instance.read_shared_rw_memory(j)?;
+            let mut arr = vec![0; limbs_32 as usize];
+            for j in 0..limbs_32 {
+                arr[(limbs_32 as usize) - 1 - (j as usize)] =
+                    self.instance.read_shared_rw_memory(j)?;
             }
             w.push(from_array32(arr));
         }
@@ -307,7 +308,7 @@ impl WitnessCalculator {
 
     pub fn get_witness_buffer(&self) -> Result<Vec<u8>> {
         let ptr = self.instance.get_ptr_witness_buffer()? as u64;
-        let len = (self.instance.get_n_vars()? * self.n64 * 8) as u64;
+        let len = (self.instance.get_n_vars()? * self.limbs_64 * 8) as u64;
 
         let store_read = self.store.read().unwrap();
         let view = self.memory.memory.view(&store_read);
@@ -383,7 +384,7 @@ mod tests {
         circuit_path: &'a str,
         inputs_path: &'a str,
         n_vars: u32,
-        n64: u32,
+        limbs_64: u32,
         witness: &'a [&'a str],
     }
 
@@ -399,7 +400,7 @@ mod tests {
             circuit_path: root_path("test-vectors/mycircuit.wasm").as_str(),
             inputs_path: root_path("test-vectors/mycircuit-input1.json").as_str(),
             n_vars: 4,
-            n64: 4,
+            limbs_64: 4,
             witness: &["1", "33", "3", "11"],
         });
     }
@@ -410,7 +411,7 @@ mod tests {
             circuit_path: root_path("test-vectors/mycircuit.wasm").as_str(),
             inputs_path: root_path("test-vectors/mycircuit-input2.json").as_str(),
             n_vars: 4,
-            n64: 4,
+            limbs_64: 4,
             witness: &[
                 "1",
                 "21888242871839275222246405745257275088548364400416034343698204186575672693159",
@@ -426,7 +427,7 @@ mod tests {
             circuit_path: root_path("test-vectors/mycircuit.wasm").as_str(),
             inputs_path: root_path("test-vectors/mycircuit-input3.json").as_str(),
             n_vars: 4,
-            n64: 4,
+            limbs_64: 4,
             witness: &[
                 "1",
                 "21888242871839275222246405745257275088548364400416034343698204186575808493616",
@@ -446,7 +447,7 @@ mod tests {
             circuit_path: root_path("test-vectors/circuit2.wasm").as_str(),
             inputs_path: root_path("test-vectors/mycircuit-input1.json").as_str(),
             n_vars: 132, // 128 + 4
-            n64: 4,
+            limbs_64: 4,
             witness,
         });
     }
@@ -462,7 +463,7 @@ mod tests {
             circuit_path: root_path("test-vectors/smtverifier10.wasm").as_str(),
             inputs_path: root_path("test-vectors/smtverifier10-input.json").as_str(),
             n_vars: 4794,
-            n64: 4,
+            limbs_64: 4,
             witness,
         });
     }
@@ -485,7 +486,7 @@ mod tests {
             "30644E72E131A029B85045B68181585D2833E84879B9709143E1F593F0000001".to_lowercase()
         );
         assert_eq!({ wtns.instance.get_n_vars().unwrap() }, case.n_vars);
-        assert_eq!({ wtns.n64 }, case.n64);
+        assert_eq!({ wtns.limbs_64 }, case.limbs_64);
 
         let inputs_str = std::fs::read_to_string(case.inputs_path).unwrap();
         let inputs: std::collections::HashMap<String, serde_json::Value> =

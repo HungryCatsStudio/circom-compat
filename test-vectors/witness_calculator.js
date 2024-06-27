@@ -122,13 +122,13 @@ class WitnessCalculator {
         this.i32 = new Uint32Array(memory.buffer);
         this.instance = instance;
 
-        this.n32 = (this.instance.exports.getFrLen() >> 2) - 2;
+        this.limbs_32 = (this.instance.exports.getFrLen() >> 2) - 2;
         const pRawPrime = this.instance.exports.getPRawPrime();
         console.log("pRawPrime:", pRawPrime);
 
         // console.log("0:", this.i32[(pRawPrime >> 2)]);
         this.prime = bigInt(0);
-        for (let i=this.n32-1; i>=0; i--) {
+        for (let i = this.limbs_32 - 1; i >= 0; i--) {
             this.prime = this.prime.shiftLeft(32);
             this.prime = this.prime.add(bigInt(this.i32[(pRawPrime >> 2) + i]));
         }
@@ -138,9 +138,9 @@ class WitnessCalculator {
         console.log("mask32:", this.mask32);
         this.NVars = this.instance.exports.getNVars();
         console.log("NVars:", this.NVars);
-        this.n64 = Math.floor((this.prime.bitLength() - 1) / 64)+1;
-        console.log("n64:", this.n64);
-        this.R = bigInt.one.shiftLeft(this.n64*64);
+        this.limbs_64 = Math.floor((this.prime.bitLength() - 1) / 64) + 1;
+        console.log("limbs_64:", this.limbs_64);
+        this.R = bigInt.one.shiftLeft(this.limbs_64 * 64);
         console.log("R:", this.R);
         this.RInv = this.R.modInv(this.prime);
         console.log("RInv:", this.RInv);
@@ -199,7 +199,7 @@ class WitnessCalculator {
 
         self.i32[0] = old0;
 
-        const buff = self.memory.buffer.slice(pWitnessBuffer, pWitnessBuffer + (self.NVars * self.n64 * 8));
+        const buff = self.memory.buffer.slice(pWitnessBuffer, pWitnessBuffer + (self.NVars * self.limbs_64 * 8));
         return buff;
     }
 
@@ -211,7 +211,7 @@ class WitnessCalculator {
 
     allocFr() {
         const p = this.i32[0];
-        this.i32[0] = p+this.n32*4 + 8;
+        this.i32[0] = p + this.limbs_32 * 4 + 8;
         return p;
     }
 
@@ -229,7 +229,7 @@ class WitnessCalculator {
 
         if (self.i32[idx + 1] & 0x80000000) {
             let res= bigInt(0);
-            for (let i=self.n32-1; i>=0; i--) {
+            for (let i = self.limbs_32 - 1; i >= 0; i--) {
                 res = res.shiftLeft(32);
                 res = res.add(bigInt(self.i32[idx+2+i]));
             }
@@ -280,11 +280,11 @@ class WitnessCalculator {
         function setLongNormal(a) {
             self.i32[(p >> 2)] = 0;
             self.i32[(p >> 2) + 1] = 0x80000000;
-            for (let i=0; i<self.n32; i++) {
+            for (let i = 0; i < self.limbs_32; i++) {
                 self.i32[(p >> 2) + 2 + i] = a.shiftRight(i*32).and(self.mask32);
             }
             console.log(">>>", self.i32[(p >> 2)] , self.i32[(p >> 2) + 1]);
-            console.log(">>>", self.i32.slice((p >> 2) + 2, (p >> 2) + 2 + self.n32));
+            console.log(">>>", self.i32.slice((p >> 2) + 2, (p >> 2) + 2 + self.limbs_32));
         }
     }
 }

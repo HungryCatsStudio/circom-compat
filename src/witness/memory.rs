@@ -25,7 +25,7 @@ use std::{convert::TryFrom, ops::Deref};
 /// ...     : More allocated memory
 #[derive(Clone, Debug)]
 pub struct SafeMemory {
-    // Memory instances must be associated with a store.
+    /// Memory instances must be associated with a store.
     store: Arc<RwLock<Store>>,
     pub memory: Memory,
 
@@ -34,7 +34,8 @@ pub struct SafeMemory {
     short_max: BigInt,
     short_min: BigInt,
     r_inv: BigInt,
-    n32: usize,
+    /// Number of 32-bit limbs required to represent a field element
+    limbs_32: usize,
 }
 
 impl Deref for SafeMemory {
@@ -47,7 +48,7 @@ impl Deref for SafeMemory {
 
 impl SafeMemory {
     /// Creates a new SafeMemory
-    pub fn new(store: Arc<RwLock<Store>>, memory: Memory, n32: usize, prime: BigInt) -> Self {
+    pub fn new(store: Arc<RwLock<Store>>, memory: Memory, limbs_32: usize, prime: BigInt) -> Self {
         // TODO: Figure out a better way to calculate these
         let short_max = BigInt::from(0x8000_0000u64);
         let short_min =
@@ -66,7 +67,7 @@ impl SafeMemory {
             short_max,
             short_min,
             r_inv,
-            n32,
+            limbs_32,
         }
     }
 
@@ -113,10 +114,10 @@ impl SafeMemory {
         u32::from_le_bytes(bytes)
     }
 
-    /// Allocates `self.n32 * 4 + 8` bytes in the memory
+    /// Allocates `self.limbs_32 * 4 + 8` bytes in the memory
     pub fn alloc_fr(&mut self) -> u32 {
         let p = self.free_pos();
-        self.set_free_pos(p + self.n32 as u32 * 4 + 8);
+        self.set_free_pos(p + self.limbs_32 as u32 * 4 + 8);
         p
     }
 
@@ -141,13 +142,13 @@ impl SafeMemory {
         let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
 
-        let res = if view.read_u8(ptr as u64 + 4 + 3).unwrap() & 0x80 != 0 {
-            let mut num = self.read_big(ptr + 8, self.n32)?;
-            if view.read_u8(ptr as u64 + 4 + 3).unwrap() & 0x40 != 0 {
+        let res = if view.read_u8(ptr as u64 + 4 + 3)? & 0x80 != 0 {
+            let mut num = self.read_big(ptr + 8, self.limbs_32)?;
+            if view.read_u8(ptr as u64 + 4 + 3)? & 0x40 != 0 {
                 num = (num * &self.r_inv) % &self.prime
             }
             num
-        } else if view.read_u8(ptr as u64 + 3).unwrap() & 0x40 != 0 {
+        } else if view.read_u8(ptr as u64 + 3)? & 0x40 != 0 {
             let mut num = self.read_u32(ptr).into();
             // handle small negative
             num -= BigInt::from(0x100000000i64);
