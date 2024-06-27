@@ -142,7 +142,6 @@ impl SafeMemory {
     pub fn read_fr(&self, ptr: usize) -> Result<BigInt> {
         let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
-        // let view = unsafe { mem_view.data_unchecked() };
 
         let res = if view.read_u8(ptr as u64 + 4 + 3).unwrap() & 0x80 != 0 {
             let mut num = self.read_big(ptr + 8, self.n32)?;

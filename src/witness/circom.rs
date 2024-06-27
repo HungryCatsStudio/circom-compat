@@ -4,7 +4,7 @@ use color_eyre::Result;
 use wasmer::{Function, Instance, Value, Store};
 
 #[derive(Clone, Debug)]
-pub struct Wasm {
+pub struct WasmInstance {
     instance: Instance,
     store: Arc<RwLock<Store>>,
 }
@@ -43,7 +43,7 @@ pub trait Circom2 {
     fn get_witness_size(&self) -> Result<u32>;
 }
 
-impl Circom for Wasm {
+impl Circom for WasmInstance {
     fn get_fr_len(&self) -> Result<u32> {
         self.get_u32("getFrLen")
     }
@@ -54,7 +54,7 @@ impl Circom for Wasm {
 }
 
 #[cfg(feature = "circom-2")]
-impl Circom2 for Wasm {
+impl Circom2 for WasmInstance {
     fn get_field_num_len32(&self) -> Result<u32> {
         self.get_u32("getFieldNumLen32")
     }
@@ -99,7 +99,7 @@ impl Circom2 for Wasm {
     }
 }
 
-impl CircomBase for Wasm {
+impl CircomBase for WasmInstance {
     fn init(&self, sanity_check: bool) -> Result<()> {
         let func = self.func("init");
         let mut store = self.store.write().unwrap();
@@ -174,7 +174,7 @@ impl CircomBase for Wasm {
     }
 }
 
-impl Wasm {
+impl WasmInstance {
     pub fn new(instance: Instance, store: Arc<RwLock<Store>>) -> Self {
         Self {
             instance,

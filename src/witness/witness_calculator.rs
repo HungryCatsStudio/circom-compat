@@ -1,4 +1,4 @@
-use super::{fnv, CircomBase, SafeMemory, Wasm};
+use super::{fnv, CircomBase, SafeMemory, WasmInstance};
 use ark_ff::PrimeField;
 use color_eyre::Result;
 use num_bigint::BigInt;
@@ -17,7 +17,7 @@ use super::Circom;
 #[derive(Clone, Debug)]
 pub struct WitnessCalculator {
     pub store: Arc<RwLock<Store>>,
-    pub instance: Wasm,
+    pub instance: WasmInstance,
     pub memory: SafeMemory,
     // Number of 64-bit blocks required to represent a field element?
     pub n64: u32,
@@ -94,13 +94,13 @@ impl WitnessCalculator {
         let instance = Instance::new(&mut store_locked, &module, &import_object)?;
         drop(store_locked);
 
-        let wasm = Wasm::new(instance, store.clone());
+        let wasm = WasmInstance::new(instance, store.clone());
 
         let version = wasm.get_version().unwrap_or(1);
 
         // Circom 2 feature flag with version 2
         #[cfg(feature = "circom-2")]
-        fn new_circom2(store: Arc<RwLock<Store>>, instance: Wasm, memory: Memory, version: u32) -> Result<WitnessCalculator> {
+        fn new_circom2(store: Arc<RwLock<Store>>, instance: WasmInstance, memory: Memory, version: u32) -> Result<WitnessCalculator> {
             let n32 = instance.get_field_num_len32()?;
             let mut safe_memory = SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
             instance.get_raw_prime()?;
@@ -123,7 +123,7 @@ impl WitnessCalculator {
             })
         }
 
-        fn new_circom1(store: Arc<RwLock<Store>>, instance: Wasm, memory: Memory, version: u32) -> Result<WitnessCalculator> {
+        fn new_circom1(store: Arc<RwLock<Store>>, instance: WasmInstance, memory: Memory, version: u32) -> Result<WitnessCalculator> {
             // Fallback to Circom 1 behavior
             let n32 = (instance.get_fr_len()? >> 2) - 2;
             let mut safe_memory = SafeMemory::new(store.clone(), memory, n32 as usize, BigInt::zero());
