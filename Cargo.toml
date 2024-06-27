@@ -57,15 +57,3 @@ wasm = ["wasmer/js-default"]
 bench-complex-all = []
 circom-2 = []
 ethereum = ["ethers-core"]
-
-
-# [patch.crates-io]
-# ark-std = { git = "https://github.com/arkworks-rs/std/" }
-# ark-ff = { git = "https://github.com/arkworks-rs/algebra/" }
-# ark-ec = { git = "https://github.com/arkworks-rs/algebra/" }
-# ark-poly = { git = "https://github.com/arkworks-rs/algebra/" }
-# ark-serialize  = { git = "https://github.com/arkworks-rs/algebra/" }
-# ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
-# ark-relations = { git = "https://github.com/arkworks-rs/snark" }
-# ark-bn254 = { git = "https://github.com/arkworks-rs/algebra/" }
-# ark-groth16 = { git = "https://github.com/arkworks-rs/groth16/" }
