@@ -94,7 +94,7 @@ impl SafeMemory {
 
     /// Writes a u32 to the specified memory offset
     pub fn write_u32(&mut self, ptr: usize, num: u32) {
-        let store = self.store.write().unwrap();
+        let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
 
         view.write(ptr as u64, &num.to_le_bytes()).unwrap();
@@ -187,7 +187,7 @@ impl SafeMemory {
     }
 
     fn write_big(&self, ptr: usize, num: &BigInt) -> Result<()> {
-        let store = self.store.write().unwrap();
+        let store = self.store.read().unwrap();
         let view = self.memory.view(&*store);
 
         // TODO: How do we handle negative bignums?
