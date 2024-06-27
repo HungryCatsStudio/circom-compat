@@ -1,7 +1,7 @@
 //! Safe-ish interface for reading and writing specific types to the WASM runtime's memory
 use ark_serialize::CanonicalDeserialize;
 use num_traits::ToPrimitive;
-use wasmer::{Memory, MemoryView, Store};
+use wasmer::{Memory, Store};
 
 // TODO: Decide whether we want Ark here or if it should use a generic BigInt package
 use ark_bn254::FrConfig;
