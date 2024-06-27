@@ -27,7 +27,6 @@ use std::{convert::TryFrom, ops::Deref};
 pub struct SafeMemory {
     // Memory instances must be associated with a store.
     store: Arc<RwLock<Store>>,
-    // TODO Can we remove this and have a `MemoryView`` instead?
     pub memory: Memory,
 
     pub prime: BigInt,
